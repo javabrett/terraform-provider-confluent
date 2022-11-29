@@ -12,29 +12,8 @@ provider "confluent" {
   cloud_api_secret = var.confluent_cloud_api_secret
 }
 
-resource "confluent_environment" "staging" {
-  display_name = "Staging"
-}
-
-# Stream Governance and Kafka clusters can be in different regions as well as different cloud providers,
-# but you should to place both in the same cloud and region to restrict the fault isolation boundary.
-data "confluent_schema_registry_region" "essentials" {
-  cloud   = "AWS"
-  region  = "us-east-2"
-  package = "ESSENTIALS"
-}
-
-resource "confluent_schema_registry_cluster" "essentials" {
-  package = data.confluent_schema_registry_region.essentials.package
-
-  environment {
-    id = confluent_environment.staging.id
-  }
-
-  region {
-    # See https://docs.confluent.io/cloud/current/stream-governance/packages.html#stream-governance-regions
-    id = data.confluent_schema_registry_region.essentials.id
-  }
+data "confluent_environment" "staging" {
+  display_name = "default"
 }
 
 # Update the config to use a cloud provider and region of your choice.
@@ -43,22 +22,21 @@ resource "confluent_kafka_cluster" "basic" {
   display_name = "inventory"
   availability = "SINGLE_ZONE"
   cloud        = "AWS"
-  region       = "us-east-2"
+  region       = "ap-southeast-2"
   basic {}
   environment {
-    id = confluent_environment.staging.id
+    id = data.confluent_environment.staging.id
   }
 }
 
 // 'app-manager' service account is required in this configuration to create 'orders' topic and grant ACLs
 // to 'app-producer' and 'app-consumer' service accounts.
-resource "confluent_service_account" "app-manager" {
+data "confluent_service_account" "app-manager" {
   display_name = "app-manager"
-  description  = "Service account to manage 'inventory' Kafka cluster"
 }
 
 resource "confluent_role_binding" "app-manager-kafka-cluster-admin" {
-  principal   = "User:${confluent_service_account.app-manager.id}"
+  principal   = "User:${data.confluent_service_account.app-manager.id}"
   role_name   = "CloudClusterAdmin"
   crn_pattern = confluent_kafka_cluster.basic.rbac_crn
 }
@@ -67,9 +45,9 @@ resource "confluent_api_key" "app-manager-kafka-api-key" {
   display_name = "app-manager-kafka-api-key"
   description  = "Kafka API Key that is owned by 'app-manager' service account"
   owner {
-    id          = confluent_service_account.app-manager.id
-    api_version = confluent_service_account.app-manager.api_version
-    kind        = confluent_service_account.app-manager.kind
+    id          = data.confluent_service_account.app-manager.id
+    api_version = data.confluent_service_account.app-manager.api_version
+    kind        = data.confluent_service_account.app-manager.kind
   }
 
   managed_resource {
@@ -78,7 +56,7 @@ resource "confluent_api_key" "app-manager-kafka-api-key" {
     kind        = confluent_kafka_cluster.basic.kind
 
     environment {
-      id = confluent_environment.staging.id
+      id = data.confluent_environment.staging.id
     }
   }
 
@@ -106,18 +84,17 @@ resource "confluent_kafka_topic" "orders" {
   }
 }
 
-resource "confluent_service_account" "app-consumer" {
+data "confluent_service_account" "app-consumer" {
   display_name = "app-consumer"
-  description  = "Service account to consume from 'orders' topic of 'inventory' Kafka cluster"
 }
 
 resource "confluent_api_key" "app-consumer-kafka-api-key" {
   display_name = "app-consumer-kafka-api-key"
   description  = "Kafka API Key that is owned by 'app-consumer' service account"
   owner {
-    id          = confluent_service_account.app-consumer.id
-    api_version = confluent_service_account.app-consumer.api_version
-    kind        = confluent_service_account.app-consumer.kind
+    id          = data.confluent_service_account.app-consumer.id
+    api_version = data.confluent_service_account.app-consumer.api_version
+    kind        = data.confluent_service_account.app-consumer.kind
   }
 
   managed_resource {
@@ -126,7 +103,7 @@ resource "confluent_api_key" "app-consumer-kafka-api-key" {
     kind        = confluent_kafka_cluster.basic.kind
 
     environment {
-      id = confluent_environment.staging.id
+      id = data.confluent_environment.staging.id
     }
   }
 }
@@ -138,7 +115,7 @@ resource "confluent_kafka_acl" "app-producer-write-on-topic" {
   resource_type = "TOPIC"
   resource_name = confluent_kafka_topic.orders.topic_name
   pattern_type  = "LITERAL"
-  principal     = "User:${confluent_service_account.app-producer.id}"
+  principal     = "User:${data.confluent_service_account.app-producer.id}"
   host          = "*"
   operation     = "WRITE"
   permission    = "ALLOW"
@@ -149,18 +126,17 @@ resource "confluent_kafka_acl" "app-producer-write-on-topic" {
   }
 }
 
-resource "confluent_service_account" "app-producer" {
+data "confluent_service_account" "app-producer" {
   display_name = "app-producer"
-  description  = "Service account to produce to 'orders' topic of 'inventory' Kafka cluster"
 }
 
 resource "confluent_api_key" "app-producer-kafka-api-key" {
   display_name = "app-producer-kafka-api-key"
   description  = "Kafka API Key that is owned by 'app-producer' service account"
   owner {
-    id          = confluent_service_account.app-producer.id
-    api_version = confluent_service_account.app-producer.api_version
-    kind        = confluent_service_account.app-producer.kind
+    id          = data.confluent_service_account.app-producer.id
+    api_version = data.confluent_service_account.app-producer.api_version
+    kind        = data.confluent_service_account.app-producer.kind
   }
 
   managed_resource {
@@ -169,7 +145,7 @@ resource "confluent_api_key" "app-producer-kafka-api-key" {
     kind        = confluent_kafka_cluster.basic.kind
 
     environment {
-      id = confluent_environment.staging.id
+      id = data.confluent_environment.staging.id
     }
   }
 }
@@ -185,7 +161,7 @@ resource "confluent_kafka_acl" "app-consumer-read-on-topic" {
   resource_type = "TOPIC"
   resource_name = confluent_kafka_topic.orders.topic_name
   pattern_type  = "LITERAL"
-  principal     = "User:${confluent_service_account.app-consumer.id}"
+  principal     = "User:${data.confluent_service_account.app-consumer.id}"
   host          = "*"
   operation     = "READ"
   permission    = "ALLOW"
@@ -207,7 +183,7 @@ resource "confluent_kafka_acl" "app-consumer-read-on-group" {
   // https://docs.confluent.io/platform/current/kafka/authorization.html#prefixed-acls
   resource_name = "confluent_cli_consumer_"
   pattern_type  = "PREFIXED"
-  principal     = "User:${confluent_service_account.app-consumer.id}"
+  principal     = "User:${data.confluent_service_account.app-consumer.id}"
   host          = "*"
   operation     = "READ"
   permission    = "ALLOW"
